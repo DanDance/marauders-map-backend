@@ -38,7 +38,6 @@ var getUserFriends = (vkId, count, offset) => {
                 var body = JSON.parse(res.body);
                 var result = body.response;
                 var error = body.error;
-                console.log('Import friends:', result);
                 if(result) resolve(result);
                 if(error)resolve(error);
             })
@@ -98,7 +97,6 @@ app.post('/api/follow', (req, res) => {
     });
     newRelation.save()
         .then(result => {
-            console.log(result);
             res.json({success: true, data: result});
         })
         .catch(err => console.log(err));
@@ -122,7 +120,6 @@ app.post('/api/followers', (req, res) => {
     })
         .then(result => {
             var mappedResult = result.map(relation => relation.follower);
-            console.log('Followers: \n', mappedResult);
             return res.json({success: true, data: mappedResult});
         })
         .catch(err => {
@@ -139,8 +136,32 @@ app.post('/api/following', (req, res) => {
     })
         .then(result => {
             var mappedResult = result.map(relation => relation.following);
-            console.log('Following: \n', mappedResult);
             return res.json({success: true, data: mappedResult});
+        })
+        .catch(err => {
+            console.log(err);
+            return res.json({success: false})
+        });
+
+});
+
+app.post('/api/followers-registered', (req, res) => {
+    var user = req.user;
+    Relation.find({
+            following: user.vkId
+        })
+        .then(result => {
+            var mappedResult = result.map(relation => relation.follower);
+            User.find({
+                vkId: {$in: mappedResult}
+            })
+                .then(users => {
+                    var indexedFollowersRegistered = {};
+                    users.forEach((user, i) => {
+                        indexedFollowersRegistered[user.vkId] = user;
+                    });
+                    res.json({success: true, data: indexedFollowersRegistered});
+                })
         })
         .catch(err => {
             console.log(err);
@@ -161,7 +182,6 @@ app.post('/user/get/token', (req, res) => {
                     var vkId = data.vkId;
                     return importVkUser(vkId)
                         .then(user => {
-                            console.log('Saved user:', user.firstName, user.lastName);
                             var token = jwt.sign(user, config.secret, {
                                 expiresIn: '365d'
                             });
@@ -206,7 +226,6 @@ app.post('/vk-auth', (req, res) => {
                 return findUserByVkId(body.user_id)
                     .then(user => {
                         if(!user){
-                            console.log('user not found');
                             return importVkUser(body.user_id)
                                 .then(user => {
                                     console.log('Saved user:', user.firstName, user.lastName);
@@ -228,7 +247,6 @@ app.post('/vk-auth', (req, res) => {
                                 })
                                 .catch(err => console.log('saving user failed:', err));
                         }
-                        console.log('User found:', user.firstName, user.lastName);
                         var token = jwt.sign(user, config.secret, {
                             expiresIn: '365d'
                         });
@@ -256,7 +274,22 @@ app.post('/vk-auth', (req, res) => {
 io.on('connection', (socket) => {
     socket.on('disconnect', () => {
     });
-    socket.on('test', () => {
+    socket.on('user-location', (data) => {
+        User.findOne({vkId: data.vkId})
+            .then(user => {
+                if(!user) return;
+                user.longitude = data.longitude;
+                user.latitude = data.latitude;
+                user.save();
+                io.sockets.emit(data.vkId, {
+                    type: 'change-location',
+                    data: {
+                        longitude: data.longitude,
+                        latitude: data.latitude
+                    }
+                });
+            })
+            .catch(err => console.log('socket: user-location ERROR:', err));
     })
 });
 
